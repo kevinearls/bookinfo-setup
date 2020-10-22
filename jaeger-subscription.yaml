@@ -10,6 +10,7 @@ spec:
   source: redhat-operators
   name: jaeger-product
   sourceNamespace: openshift-marketplace
+  startingCSV: jaeger-operator.v1.17.6
   config:
     env:
       - name: LOG-LEVEL

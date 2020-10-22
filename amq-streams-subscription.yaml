@@ -10,3 +10,4 @@ spec:
   source: redhat-operators
   name: amq-streams
   sourceNamespace: openshift-marketplace
+  startingCSV: amqstreams.v1.5.3

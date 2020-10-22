@@ -6,6 +6,8 @@
 # More bookinfo information here: https://istio.io/latest/docs/examples/bookinfo/
 # Fault injection: https://istio.io/latest/docs/tasks/traffic-management/fault-injection/
 
+set -x
+set -e
 #
 # TODO: Write a cleanup job
 #
@@ -13,10 +15,10 @@ export CONTROL_PLANE_NAMESPACE=istio-system
 export CONTROL_PLANE_NAME=istio-system
 
 # First install the ES, AMQ Streams (optional?), Jaeger, and Kiali Operators. Currently this will install released versions from redhat-operators
-oc apply -f elasticsearch-subscription.yaml
-oc apply -f amq-streams-subscription.yaml
-oc apply -f jaeger-subscription.yaml
-oc apply -f kiali-subscription.yaml
+oc create -f elasticsearch-subscription.yaml
+oc create -f amq-streams-subscription.yaml
+oc create -f jaeger-subscription.yaml
+oc create -f kiali-subscription.yaml
 
 # Now wait for those operators to be ready; re-order this by normal expected setup times
 sleep 60
@@ -40,16 +42,19 @@ export KIALI_OPERATOR_NAMESPACE=$(oc get deployments --all-namespaces | grep kia
 oc wait --for=condition=available deployment/${KIALI_OPERATOR_NAME} --namespace ${KIALI_OPERATOR_NAMESPACE} --timeout=120s
 
 # Now install service mesh and wait for it to install
-oc apply -f service_mesh_subscription.yaml
+oc apply -f service-mesh-subscription.yaml
+# TODO we might be able to reduce this wait time
 sleep 60
-# TODO what to wait for here?????
 export RHSM_OPERATOR_NAME=$(oc get deployments --all-namespaces | grep istio | awk '{print $2}')
 export RHSM_OPERATOR_NAMESPACE=$(oc get deployments --all-namespaces | grep istio | awk '{print $1}')
 oc wait --for=condition=available deployment/${RHSM_OPERATOR_NAME} --namespace ${RHSM_OPERATOR_NAMESPACE} --timeout=120s
 
 # Create a control plane and service mesh member roll
-oc new-project istio-system
-$ oc create --namespace istio-system -f service-mesh-control-plane.yaml
+### Who creates this???
+set +e
+oc new-project istio-system || true
+set -e
+oc create -f service-mesh-control-plane.yaml
 
 sleep 30
 start_time=`date +%s`
@@ -73,8 +78,8 @@ oc get smcp --namespace ${CONTROL_PLANE_NAMESPACE}
 oc get deployments --namespace ${CONTROL_PLANE_NAMESPACE}
 oc wait --for=condition=available deployment/istio-egressgateway --namespace ${CONTROL_PLANE_NAMESPACE}
 
-# TODO do we need to wait for the Jaeger instance to be ready?  Probably not
-oc apply --namespace istio-system service-mesh-member-roll.yaml
+# TODO do we need to wait for the Jaeger instance to be ready?
+oc apply --namespace istio-system -f service-mesh-member-roll.yaml
 
 # Install bookinfo
 oc new-project bookinfo
@@ -87,13 +92,15 @@ done
 
 oc apply -n bookinfo -f https://raw.githubusercontent.com/Maistra/istio/maistra-1.1/samples/bookinfo/networking/bookinfo-gateway.yaml
 
-## Do we need this?  Would it be better to create a route like Filip does?
+## TODO Do we need this?  Would it be better to create a route like Filip does?
 export GATEWAY_URL=$(oc -n istio-system get route istio-ingressgateway -o jsonpath='{.spec.host}')
 echo GATEWAY_URL is ${GATEWAY_URL}
 
 oc apply -n bookinfo -f https://raw.githubusercontent.com/Maistra/istio/maistra-1.1/samples/bookinfo/networking/destination-rule-all.yaml
 
-# Verify that it is installed
+
+# TODO we either need to wait or retry here
+# Verify that it is installed -it should return a 200
 curl -o /dev/null -s -w "%{http_code}\n" http://$GATEWAY_URL/productpage
 
 
