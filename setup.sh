@@ -13,6 +13,8 @@ set -e
 #
 export CONTROL_PLANE_NAMESPACE=istio-system
 export CONTROL_PLANE_NAME=istio-system
+export BOOKINFO_NAMESPACE=bookinfo
+export TRAFFIC_GENERATOR_NAMESPACE=traffic
 
 # First install the ES, AMQ Streams (optional?), Jaeger, and Kiali Operators. Currently this will install released versions from redhat-operators
 oc create -f elasticsearch-subscription.yaml
@@ -52,7 +54,7 @@ oc wait --for=condition=available deployment/${RHSM_OPERATOR_NAME} --namespace $
 # Create a control plane and service mesh member roll
 ### Who creates this???
 set +e
-oc new-project istio-system || true
+oc new-project ${CONTROL_PLANE_NAMESPACE} || true
 set -e
 oc create -f service-mesh-control-plane.yaml
 
@@ -78,31 +80,44 @@ oc get smcp --namespace ${CONTROL_PLANE_NAMESPACE}
 oc get deployments --namespace ${CONTROL_PLANE_NAMESPACE}
 oc wait --for=condition=available deployment/istio-egressgateway --namespace ${CONTROL_PLANE_NAMESPACE}
 
-# TODO do we need to wait for the Jaeger instance to be ready?
-oc apply --namespace istio-system -f service-mesh-member-roll.yaml
+# TODO do we need to wait for the Jaeger instance to be ready? Yes, because we need to wait for the ES instane to start
+sleep 60
+export JAEGER_OPERATOR_NAMESPACE=$(oc get deployments --all-namespaces | grep jaeger-operator | awk '{print $1}')
+oc wait --for=condition=available deployment/jaeger-operator --namespace ${JAEGER_OPERATOR_NAMESPACE} --timeout=120s
+
+
+oc apply --namespace ${CONTROL_PLANE_NAMESPACE} -f service-mesh-member-roll.yaml
 
 # Install bookinfo
-oc new-project bookinfo
-oc apply -n bookinfo -f https://raw.githubusercontent.com/Maistra/istio/maistra-1.1/samples/bookinfo/platform/kube/bookinfo.yaml
+oc new-project ${BOOKINFO_NAMESPACE}
+# OR https://raw.githubusercontent.com/istio/istio/master/samples/bookinfo/platform/kube/bookinfo.yaml ????
+oc apply -n ${BOOKINFO_NAMESPACE} -f https://raw.githubusercontent.com/Maistra/istio/maistra-1.1/samples/bookinfo/platform/kube/bookinfo.yaml
 
 sleep 30
 for deployment in details-v1 productpage-v1 ratings-v1 reviews-v1 reviews-v2 reviews-v3 ; do
-    oc wait --for=condition=available deployment/${deployment} --namespace bookinfo --timeout=120s
+    oc wait --for=condition=available deployment/${deployment} --namespace ${BOOKINFO_NAMESPACE} --timeout=120s
 done
 
-oc apply -n bookinfo -f https://raw.githubusercontent.com/Maistra/istio/maistra-1.1/samples/bookinfo/networking/bookinfo-gateway.yaml
+oc apply -n ${BOOKINFO_NAMESPACE} -f https://raw.githubusercontent.com/Maistra/istio/maistra-1.1/samples/bookinfo/networking/bookinfo-gateway.yaml
 
 ## TODO Do we need this?  Would it be better to create a route like Filip does?
-export GATEWAY_URL=$(oc -n istio-system get route istio-ingressgateway -o jsonpath='{.spec.host}')
+export GATEWAY_URL=$(oc -n ${CONTROL_PLANE_NAMESPACE} get route istio-ingressgateway -o jsonpath='{.spec.host}')
 echo GATEWAY_URL is ${GATEWAY_URL}
 
-oc apply -n bookinfo -f https://raw.githubusercontent.com/Maistra/istio/maistra-1.1/samples/bookinfo/networking/destination-rule-all.yaml
+oc apply -n ${BOOKINFO_NAMESPACE} -f https://raw.githubusercontent.com/Maistra/istio/maistra-1.1/samples/bookinfo/networking/destination-rule-all.yaml
 
-
-# TODO we either need to wait or retry here
-# Verify that it is installed -it should return a 200
+# TODO we either need to wait or retry here.Verify that it is installed -it should return a 200
+sleep 30
 curl -o /dev/null -s -w "%{http_code}\n" http://$GATEWAY_URL/productpage
 
+# Now install the traffic generator.  We need to create the configmap first
+# Set duration to "0s" for traffic to never end.  Set RATE to number of operations per second.  Default is per second, we can use something like 1/10s to run every 10 seconds
+DURATION="30s"
+RATE="1/5s"
+ROUTE="http://$GATEWAY_URL/productpage"
+oc new-project ${TRAFFIC_GENERATOR_NAMESPACE}
+curl https://raw.githubusercontent.com/kiali/kiali-test-mesh/master/traffic-generator/openshift/traffic-generator-configmap.yaml | DURATION="${DURATION}" ROUTE="$ROUTE" RATE="$RATE"  envsubst | oc apply -n ${TRAFFIC_GENERATOR_NAMESPACE} -f -
+curl https://raw.githubusercontent.com/kiali/kiali-test-mesh/master/traffic-generator/openshift/traffic-generator.yaml | oc apply -n ${TRAFFIC_GENERATOR_NAMESPACE} -f -
 
 
 

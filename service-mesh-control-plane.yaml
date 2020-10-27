@@ -3,7 +3,6 @@ kind: ServiceMeshControlPlane
 metadata:
   name: istio-system
 spec:
-
   istio:
     global:
       proxy:
@@ -14,18 +13,15 @@ spec:
           limits:
             cpu: 500m
             memory: 128Mi
-
     gateways:
       istio-egressgateway:
         autoscaleEnabled: false
       istio-ingressgateway:
         autoscaleEnabled: false
         ior_enabled: false
-
     mixer:
       policy:
         autoscaleEnabled: false
-
       telemetry:
         autoscaleEnabled: false
         resources:
@@ -35,17 +31,13 @@ spec:
           limits:
             cpu: 500m
             memory: 4G
-
     pilot:
       autoscaleEnabled: false
       traceSampling: 100
-
     kiali:
       enabled: true
-
     grafana:
       enabled: true
-
     tracing:
       enabled: true
       jaeger:
